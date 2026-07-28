@@ -59,13 +59,7 @@
 
 ## 📦 安装与运行
 
-### 方式一：下载 EXE（推荐）
-
-从 [Releases](https://github.com/DFAoj6199/brotato_auto_helper/releases) 下载最新版 `BrotatoHelper.zip`，解压后双击 `BrotatoHelper.exe` 即可。
-
-> 首次运行 EasyOCR 需加载模型，启动较慢（约 30 秒），后续会快很多。
-
-### 方式二：源码运行
+### 方式一：源码运行（推荐）
 
 ```bash
 git clone https://github.com/DFAoj6199/brotato_auto_helper.git
@@ -75,6 +69,12 @@ python main.py
 ```
 
 > EasyOCR 首次运行会自动下载中文识别模型（约 100MB），请耐心等待。
+
+### 方式二：下载 EXE
+
+从 [Releases](https://github.com/DFAoj6199/brotato_auto_helper/releases) 下载最新版 `BrotatoHelper.zip`，解压后双击 `BrotatoHelper.exe` 即可。
+
+> 首次运行 EasyOCR 需加载模型，启动较慢（约 30 秒），后续会快很多。
 
 ### 打包为 EXE（可选）
 

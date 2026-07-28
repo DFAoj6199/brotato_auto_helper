@@ -5,3 +5,4 @@ __pycache__/
 *.pyo
 config.json
 .DS_Store
+视频分镜脚本.md
