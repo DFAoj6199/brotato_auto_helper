@@ -9,7 +9,7 @@
 
 [![演示视频](https://img.shields.io/badge/bilibili-演示视频-00a1d6)](https://www.bilibili.com/video/BV1e1FxzmEfh/?share_source=copy_web&vd_source=f6805871c26d2377d3f1f8cecabbc935)
 
-> 🔗 [https://www.bilibili.com/video/BV1e1FxzmEfh/](https://www.bilibili.com/video/BV1e1FxzmEfh/?share_source=copy_web&vd_source=f6805871c26d2377d3f1f8cecabbc935)
+> 🔗 [土豆兄弟自动托管工具-电表倒转时解放双手](https://www.bilibili.com/video/BV1sL3v6uEoD/?share_source=copy_web&vd_source=f6805871c26d2377d3f1f8cecabbc935)
 
 ---
 
