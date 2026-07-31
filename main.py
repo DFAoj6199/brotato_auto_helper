@@ -9,8 +9,8 @@
 
 功能：
     1. 框选任务区域
-    2. 热键 F8 切换连续自动升级
-    3. 热键 F7 触发一次性升级
+    2. 热键 F7 切换连续自动升级（默认值，可在设置中修改）
+    3. 热键 F6 触发一次性升级
 
 依赖安装：
     pip install -r requirements.txt
@@ -18,13 +18,10 @@
 
 import json
 import os
-import random
-import re
 import sys
 import time
-import base64
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, simpledialog
+from tkinter import ttk, messagebox, scrolledtext
 from threading import Thread, Event, Lock
 from pathlib import Path
 from datetime import datetime
@@ -69,14 +66,10 @@ class ConfigManager:
     """管理 config.json 的加载与保存。"""
 
     DEFAULT = {
-        "upgrade_keys": ["<space>"],
         "delay_between_upgrades_ms": 600,
         "upgrade_max": 0,  # 升级次数上限，0=不限制
         "upgrade_detect_region": {"left": 800, "top": 200, "width": 120, "height": 50},
-        "upgrade_click_coord": None,  # 鼠标升级点击坐标，如 {"x": 960, "y": 540}；None 则用键盘
-        "hotkey_toggle": "<f8>",
-        "hotkey_trigger_once": "<f7>",
-        "hotkey_stop": "<esc>",
+        "upgrade_click_coord": None,  # 鼠标升级点击坐标，如 {"x": 960, "y": 540}；必须设置，否则无法升级
         "shortcuts_enabled": True,
         "shortcuts": {
             "stop": "<esc>",
@@ -128,6 +121,19 @@ class ConfigManager:
         "shop_leave_coord": {"x": 960, "y": 700},
     }
 
+    # 已废弃的配置项（早期"数字识别"方案与旧版热键字段），加载时自动清除
+    LEGACY_KEYS = (
+        "upgrade_keys",
+        "hotkey_toggle",
+        "hotkey_trigger_once",
+        "hotkey_stop",
+        "region",
+        "tesseract_path",
+        "ocr_confidence_min",
+        "preprocess_scale",
+        "digit_templates",
+    )
+
     def __init__(self, path: Path = CONFIG_PATH):
         self.path = path
         self.data = dict(self.DEFAULT)
@@ -142,6 +148,9 @@ class ConfigManager:
                 self._deep_merge(self.data, loaded)
                 # 规范化快捷键（tkinter keysym → pynput Key.name）
                 self._normalize_shortcuts()
+                # 清除已废弃配置项
+                for key in self.LEGACY_KEYS:
+                    self.data.pop(key, None)
             except Exception as e:
                 print(f"[警告] 加载配置失败: {e}，使用默认配置")
 
@@ -161,14 +170,14 @@ class ConfigManager:
             print(f"[错误] 保存配置失败: {e}")
 
     def get(self, *keys):
-        """链式取值，例如 get("region", "left")。"""
+        """链式取值，例如 get("shortcuts", "stop")。"""
         val = self.data
         for k in keys:
             val = val[k]
         return val
 
     def set(self, *keys_and_value):
-        """链式设值，最后一个参数是 value。例如 set("region", "left", 100)。"""
+        """链式设值，最后一个参数是 value。例如 set("shortcuts", "stop", "<f8>")。"""
         *keys, value = keys_and_value
         d = self.data
         for k in keys[:-1]:
@@ -194,7 +203,6 @@ class ScreenReader:
     def __init__(self, config: ConfigManager):
         self.config = config
         self.sct = mss.MSS()
-        self._last_debug_images: list[tuple[str, np.ndarray]] = []
         self._easyocr_reader = None  # 懒加载
 
 
@@ -215,37 +223,7 @@ class ScreenReader:
                 _mb.showerror("OCR 错误", f"Reader 创建失败:\n{e}")
         return self._easyocr_reader
 
-    def _ocr_diag(self):
-        """诊断 OCR 状态，弹窗显示。"""
-        import tkinter.messagebox as _mb
-        info = []
-        info.append(f"HAS_EASYOCR={HAS_EASYOCR}")
-        info.append(f"reader={self._easyocr_reader is not None}")
-        md = getattr(sys, '_MEIPASS', None)
-        info.append(f"_MEIPASS={md}")
-        if md:
-            mdp = os.path.join(md, 'EasyOCR', 'model')
-            info.append(f"model_dir={mdp}")
-            if os.path.exists(mdp):
-                info.append(f"model_dir内容: {os.listdir(mdp)}")
-            else:
-                info.append("model_dir 不存在!")
-            # 检查 DBNet config
-            db = os.path.join(md, 'easyocr', 'DBNet', 'configs', 'DBNet_inference.yaml')
-            info.append(f"DBNet yaml存在: {os.path.exists(db)} → {db}")
-        _mb.showinfo("OCR 诊断", "\n".join(info))
-
     # ---- 通用区域 OCR（用于中文 / 道具名识别） ----
-
-    def _preprocess_for_text(self, bgr: np.ndarray, scale: int = 3) -> np.ndarray:
-        """预处理任意区域图像，返回白底黑字二值图。"""
-        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        white_px = np.count_nonzero(binary == 255)
-        if white_px > np.count_nonzero(binary == 0):
-            binary = cv2.bitwise_not(binary)
-        return cv2.copyMakeBorder(binary, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=255)
 
     def ocr_text(self, region: dict, lang: str = "chi_sim+eng") -> str:
         """对任意屏幕区域做中文 OCR。"""
@@ -265,11 +243,6 @@ class ScreenReader:
             except Exception:
                 pass
         return ""
-
-    def check_text_in_region(self, region: dict, target: str) -> bool:
-        """检查指定区域中是否包含目标文字（如"属性"）。"""
-        text = self.ocr_text(region)
-        return target in text
 
     def grab_region_image(self, region: dict) -> np.ndarray:
         """截取区域，返回 BGR 数组（供预览用）。"""
@@ -303,8 +276,6 @@ class AutoUpgrader:
         self._stop_event = Event()
         self._worker_thread: Thread | None = None
         self._lock = Lock()
-        self._upgrade_done = 0   # 升级已完成次数（供 F4 重识别后 log 用）
-        self._upgrade_total = 0  # 升级目标总次数
         self._shop_cooldown: float = 0  # 商店检测冷却时间戳
         self._general_pause = Event()  # 通用暂停（非升级环节可切换）
         self._current_phase = "idle"   # 当前阶段: idle/crate/upgrade/shop
@@ -675,8 +646,6 @@ class AutoUpgrader:
         if in_upgrade:
             # 在升级界面：执行升级
             self._current_phase = "upgrade"
-            self._upgrade_done = 0
-            self._upgrade_total = 0
             raw_delay = self.config.get("delay_between_upgrades_ms")
             delay = max(100, raw_delay) / 1000.0
             upgrade_max = self.config.data.get("upgrade_max", 0)
@@ -700,8 +669,6 @@ class AutoUpgrader:
                     break
                 self._press_upgrade_once()
                 i += 1
-                self._upgrade_done = i
-                self._upgrade_total = i
                 limit_str = f"/{upgrade_max}" if upgrade_max else ""
                 self.status(f"⬆ 升级 {i}{limit_str}", "#f1c40f")
                 if upgrade_max and i >= upgrade_max:
@@ -787,8 +754,6 @@ class AutoUpgrader:
                 self.log(f"  [界面检测] 升级界面={'✓' if in_upgrade else '✗'}")
                 if in_upgrade:
                     self._current_phase = "upgrade"
-                    self._upgrade_done = 0
-                    self._upgrade_total = 0
                     raw_delay = self.config.get("delay_between_upgrades_ms")
                     delay = max(100, raw_delay) / 1000.0
                     upgrade_max = self.config.data.get("upgrade_max", 0)
@@ -810,8 +775,6 @@ class AutoUpgrader:
                             break
                         self._press_upgrade_once()
                         i += 1
-                        self._upgrade_done = i
-                        self._upgrade_total = i
                         limit_str = f"/{upgrade_max}" if upgrade_max else ""
                         self.status(f"⬆ 升级 {i}{limit_str}", "#f1c40f")
                         if upgrade_max and i >= upgrade_max:
@@ -1835,7 +1798,7 @@ class MainApp(tk.Tk):
         title_f.pack(fill=tk.X)
         self._tag(ttk.Label(title_f, text="🎮 土豆兄弟·一键托管工具",
                             font=self.font_title), "title").pack(anchor=tk.W)
-        self._tag(ttk.Label(title_f, text="自动识别升级次数 → 拾取箱子 → 商店购买",
+        self._tag(ttk.Label(title_f, text="自动升级 → 拾取箱子 → 商店购买",
                             font=self.font_default), "default").pack(anchor=tk.W, pady=(2, 4))
 
         # ====== 左右分栏（扩展填充剩余空间） ======
@@ -2538,6 +2501,10 @@ class MainApp(tk.Tk):
 
     def _save_config(self):
         """保存配置到文件。"""
+        # 连续模式运行中保存会重建实例，先停止，避免旧工作线程继续执行
+        if self.upgrader.is_running:
+            self.upgrader.stop_continuous()
+            self._append_log("  ℹ 连续模式已停止，保存后请重新启动以应用新配置")
         try:
             delay = int(self.entry_delay.get())
             if delay < 25:
@@ -2546,7 +2513,6 @@ class MainApp(tk.Tk):
             messagebox.showwarning("输入错误", "间隔必须是 >= 25 的整数")
             return
 
-        self.config.data["upgrade_keys"] = ["<space>"]
         self.config.data["delay_between_upgrades_ms"] = delay
         try:
             val = int(self.entry_upgrade_max.get())
@@ -2648,6 +2614,7 @@ class MainApp(tk.Tk):
         )
 
         self._append_log("[配置] 已保存 ✓")
+        self._update_status()
         messagebox.showinfo("保存成功", "配置已保存")
 
     def _toggle(self):
@@ -2689,7 +2656,6 @@ class MainApp(tk.Tk):
 
 def main():
     app = MainApp()
-    app.mainloop()
     app.mainloop()
 
 
